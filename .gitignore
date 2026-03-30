@@ -17,3 +17,6 @@ dist/
 /examples/.python-version
 coverage.txt
 
+*.box
+tests/manual/terraform.tfstate*
+tests/manual/.terraform*

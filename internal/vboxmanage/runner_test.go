@@ -108,9 +108,9 @@ func TestMockDriverWithStdoutFunc(t *testing.T) {
 func TestMockDriverMultipleCalls(t *testing.T) {
 	mock := &MockDriver{Stdout: "result"}
 
-	mock.Execute("cmd1")
-	mock.Execute("cmd2", "arg")
-	mock.Execute("cmd3", "a", "b")
+	_, _, _ = mock.Execute("cmd1")
+	_, _, _ = mock.Execute("cmd2", "arg")
+	_, _, _ = mock.Execute("cmd3", "a", "b")
 
 	if len(mock.Calls) != 3 {
 		t.Fatalf("expected 3 calls, got %d", len(mock.Calls))

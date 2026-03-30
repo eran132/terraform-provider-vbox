@@ -160,7 +160,7 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta any) dia
 		}
 
 		// make sure the file is closed when this function ends
-		defer sourceFile.Close()
+		defer sourceFile.Close() //nolint:errcheck
 
 		targetFile, err := os.Create(target)
 		if err != nil {
@@ -168,7 +168,7 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta any) dia
 		}
 
 		// make sure the file is closed when this function ends
-		defer targetFile.Close()
+		defer targetFile.Close() //nolint:errcheck
 
 		if _, err := io.Copy(targetFile, sourceFile); err != nil {
 			return diag.Errorf("copy optical disk image failed: %v", err)

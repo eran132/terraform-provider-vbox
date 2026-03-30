@@ -52,7 +52,7 @@ func unpackImage(ctx context.Context, image, toDir string) error {
 		if err != nil {
 			return err
 		}
-		defer fp.Close()
+		defer fp.Close() //nolint:errcheck
 
 		/* Unpack */
 		tflog.Debug(ctx, "unpacking gold virtual image", map[string]any{

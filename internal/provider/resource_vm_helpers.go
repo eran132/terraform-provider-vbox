@@ -12,7 +12,7 @@ import (
 
 	humanize "github.com/dustin/go-humanize"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	vbox "github.com/terra-farm/go-virtualbox"
 )
@@ -113,7 +113,7 @@ func waitForVMAttribute(ctx context.Context, d *schema.ResourceData, target []st
 		"target":    "target",
 	})
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:        pending,
 		Target:         target,
 		Refresh:        newVMStateRefreshFunc(ctx, d, attribute, meta),
@@ -126,7 +126,7 @@ func waitForVMAttribute(ctx context.Context, d *schema.ResourceData, target []st
 	return stateConf.WaitForStateContext(ctx)
 }
 
-func newVMStateRefreshFunc(ctx context.Context, d *schema.ResourceData, attribute string, meta any) resource.StateRefreshFunc {
+func newVMStateRefreshFunc(ctx context.Context, d *schema.ResourceData, attribute string, meta any) retry.StateRefreshFunc {
 	return func() (any, string, error) {
 		err := resourceVMRead(ctx, d, meta)
 		if err != nil {
@@ -178,13 +178,13 @@ func fetchIfRemote(u *url.URL) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
-	resp, err := http.Get(u.String())
+	resp, err := http.Get(u.String()) //nolint:gosec
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		return "", err
