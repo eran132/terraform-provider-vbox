@@ -38,55 +38,66 @@ type image struct {
 	file io.ReadSeeker
 }
 
-func unpackImage(ctx context.Context, image, toDir string) error {
-	/* Check if toDir exists */
+func unpackImage(ctx context.Context, imagePath, toDir string) error {
 	_, err := os.Stat(toDir)
 	finfo, _ := os.ReadDir(toDir)
 	dirEmpty := len(finfo) == 0
-	if os.IsNotExist(err) || dirEmpty {
-		err := os.MkdirAll(toDir, 0740)
-		if err != nil {
-			return fmt.Errorf("unable to create %s directory: %w", toDir, err)
-		}
-		fp, err := os.Open(image)
-		if err != nil {
-			return err
-		}
-		defer fp.Close() //nolint:errcheck
+	if !os.IsNotExist(err) && !dirEmpty {
+		return nil // Already unpacked
+	}
 
-		/* Unpack */
-		tflog.Debug(ctx, "unpacking gold virtual image", map[string]any{
-			"image": image,
-			"toDir": toDir,
-		})
-		cmd := exec.Command("tar", "-xv", "-C", toDir, "-f", image)
+	if err := os.MkdirAll(toDir, 0740); err != nil {
+		return fmt.Errorf("unable to create %s directory: %w", toDir, err)
+	}
+
+	tflog.Debug(ctx, "unpacking gold virtual image", map[string]any{
+		"image": imagePath,
+		"toDir": toDir,
+	})
+
+	// Try tar with auto-detect compression first (works on most systems)
+	// Use -a flag for auto-detection, fall back to explicit flags
+	for _, tarArgs := range [][]string{
+		{"tar", "-xvf", imagePath, "-C", toDir},  // auto-detect
+		{"tar", "-xzvf", imagePath, "-C", toDir},  // gzip
+		{"tar", "-xjvf", imagePath, "-C", toDir},  // bzip2
+		{"tar", "-xJvf", imagePath, "-C", toDir},  // xz
+	} {
+		cmd := exec.Command(tarArgs[0], tarArgs[1:]...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("error unpacking gold image %s: %w", fp.Name(), err)
+		if err := cmd.Run(); err == nil {
+			// Check if extraction produced any files
+			extracted, _ := os.ReadDir(toDir)
+			if len(extracted) > 0 {
+				return nil
+			}
 		}
 	}
-	return nil
+
+	return fmt.Errorf("error unpacking gold image %s: all tar extraction methods failed", imagePath)
 }
 
 func gatherDisks(path string) ([]string, error) {
-	VDIs, err := filepath.Glob(filepath.Join(path, "**.vdi"))
+	var disks []string
+	err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		ext := strings.ToLower(filepath.Ext(p))
+		if ext == ".vdi" || ext == ".vmdk" {
+			disks = append(disks, p)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get *.vdi in %q: %w", path, err)
+		return nil, fmt.Errorf("error walking path %q: %w", path, err)
 	}
-	VMDKs, err := filepath.Glob(filepath.Join(path, "**.vmdk"))
-	if err != nil {
-		return nil, fmt.Errorf("get *.vmdk in path %q: %w", path, err)
-	}
-	disks := append(VDIs, VMDKs...)
 	if len(disks) == 0 {
-		return nil, fmt.Errorf(
-			"no VM disk files (*.vdi, *.vmdk) found in path %q", path)
+		return nil, fmt.Errorf("no VM disk files (*.vdi, *.vmdk) found in path %q", path)
 	}
-	prioritized := ByDiskPriority(disks)
-	sort.Sort(prioritized)
-	return prioritized, nil
+	sort.Sort(ByDiskPriority(disks))
+	return disks, nil
 }
 
 // ByDiskPriority adds a simple sort to make sure that configdisk is not first

@@ -76,10 +76,10 @@ func resourceVM() *schema.Resource {
 			},
 
 			"user_data": {
-				Deprecated: "user_data is not working and is temporarily deprecated while we figure out how to make it work",
-				Type:       schema.TypeString,
-				Optional:   true,
-				Default:    "",
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "",
+				Description: "Cloud-init user data (cloud-config YAML or script). Passed to the VM via VirtualBox guest properties.",
 			},
 
 			"checksum": {

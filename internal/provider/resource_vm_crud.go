@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
 	"io"
 	"net/url"
@@ -33,6 +34,82 @@ func resourceVMExists(d *schema.ResourceData, meta any) (bool, error) {
 }
 
 func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
+	// Handle linked clone
+	if d.Get("linked_clone").(bool) {
+		sourceVM := d.Get("source_vm").(string)
+		if sourceVM == "" {
+			return diag.Errorf("source_vm is required when linked_clone is true")
+		}
+
+		name := d.Get("name").(string)
+
+		// Clone the VM
+		args := []string{"clonevm", sourceVM, "--name", name, "--options", "link", "--register"}
+		if _, _, err := vbox.Run(ctx, args...); err != nil {
+			return diag.Errorf("failed to create linked clone: %v", err)
+		}
+
+		// Get the cloned VM
+		vm, err := vbox.GetMachine(name)
+		if err != nil {
+			return diag.Errorf("failed to get cloned VM: %v", err)
+		}
+
+		// Apply configuration
+		if err := tfToVbox(ctx, d, vm); err != nil {
+			return diag.Errorf("unable to convert Terraform data to VM properties: %v", err)
+		}
+		if err := vm.Modify(); err != nil {
+			return diag.Errorf("can't set up VM properties: %v", err)
+		}
+
+		// Apply firmware, graphics, NIC settings, shared folders, etc.
+		if firmware := d.Get("firmware").(string); firmware != "bios" {
+			if err := applyFirmware(ctx, vm.UUID, firmware); err != nil {
+				return diag.Errorf("unable to set firmware: %v", err)
+			}
+		}
+		if gc := d.Get("graphics_controller").(string); gc != "" {
+			if err := applyGraphicsController(ctx, vm.UUID, gc); err != nil {
+				return diag.Errorf("unable to set graphics controller: %v", err)
+			}
+		}
+		if err := applyNICSettings(ctx, vm.UUID, d); err != nil {
+			return diag.Errorf("unable to apply NIC settings: %v", err)
+		}
+		if err := applySharedFolders(ctx, vm.UUID, d); err != nil {
+			return diag.Errorf("unable to apply shared folders: %v", err)
+		}
+		if cap := d.Get("cpu_execution_cap").(int); cap < 100 {
+			if err := applyCPUExecutionCap(ctx, vm.UUID, cap); err != nil {
+				return diag.Errorf("unable to set CPU execution cap: %v", err)
+			}
+		}
+		if d.Get("nested_hw_virt").(bool) {
+			if err := applyNestedHWVirt(ctx, vm.UUID, true); err != nil {
+				return diag.Errorf("unable to set nested HW virtualization: %v", err)
+			}
+		}
+		if customizations, ok := d.GetOk("customize"); ok {
+			if err := executeCustomizations(ctx, vm.UUID, customizations.([]any)); err != nil {
+				return diag.Errorf("customize commands failed: %v", err)
+			}
+		}
+
+		// Start the VM
+		if err := startVM(ctx, d, vm); err != nil {
+			return diag.Errorf("unable to start VM: %v", err)
+		}
+
+		d.SetId(vm.UUID)
+
+		if err := waitUntilVMIsReady(ctx, d, vm, meta); err != nil {
+			return diag.Errorf("failed to wait until VM is ready: %v", err)
+		}
+
+		return resourceVMRead(ctx, d, meta)
+	}
+
 	image := d.Get("image").(string)
 
 	if addr, exists := d.GetOk("url"); exists {
@@ -67,11 +144,9 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta any) dia
 
 	// Unpack gold image to gold folder
 	imageOpMutex.Lock() // Sequentialize image unpacking to avoid conflicts
-	goldFileName := filepath.Base(imagePath)
-	goldName := strings.TrimSuffix(goldFileName, filepath.Ext(goldFileName))
-	if filepath.Ext(goldName) == ".tar" {
-		goldName = strings.TrimSuffix(goldName, ".tar")
-	}
+	// Use a hash of the image path to create a unique gold directory name
+	// This prevents conflicts when different URLs have the same filename (e.g. "vagrant.box")
+	goldName := fmt.Sprintf("%x", md5.Sum([]byte(image)))[:12]
 
 	goldPath := filepath.Join(goldFolder, goldName)
 	if err = unpackImage(ctx, imagePath, goldPath); err != nil {
@@ -301,6 +376,13 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta any) dia
 		}
 	}
 
+	// Apply user data (cloud-init)
+	if userData := d.Get("user_data").(string); userData != "" {
+		if err := applyUserData(ctx, vm.UUID, userData); err != nil {
+			return diag.Errorf("unable to set user data: %v", err)
+		}
+	}
+
 	// Apply USB controller
 	if usb := d.Get("usb_controller").(string); usb != "" {
 		if err := applyUSBController(ctx, vm.UUID, usb); err != nil {
@@ -498,6 +580,13 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta any) dia
 	// Apply nested HW virtualization
 	if err := applyNestedHWVirt(ctx, vm.UUID, d.Get("nested_hw_virt").(bool)); err != nil {
 		return diag.Errorf("unable to set nested HW virtualization: %v", err)
+	}
+
+	// Apply user data (cloud-init)
+	if userData := d.Get("user_data").(string); userData != "" {
+		if err := applyUserData(ctx, vm.UUID, userData); err != nil {
+			return diag.Errorf("unable to set user data: %v", err)
+		}
 	}
 
 	// Apply USB controller

@@ -65,6 +65,7 @@ resource "virtualbox_vm" "web" {
 - `status` - (Optional) Desired power state: `"running"` or `"poweroff"`. Defaults to `"running"`.
 - `os_type` - (Optional) Guest OS type identifier. Defaults to `"Linux_64"`.
 - `gui` - (Optional) Whether to display the VM GUI window. Defaults to `false`.
+- `user_data` - (Optional) Cloud-init user data (cloud-config YAML or script). Passed to the VM via VirtualBox guest properties.
 
 ### Optional - Display
 
