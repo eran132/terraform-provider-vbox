@@ -101,11 +101,11 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 
 	// Start VM resource
 	resourceName := sanitizeResourceName(vmName)
-	sb.WriteString(fmt.Sprintf("resource \"virtualbox_vm\" %q {\n", resourceName))
-	sb.WriteString(fmt.Sprintf("  name   = %q\n", vmName))
-	sb.WriteString(fmt.Sprintf("  image  = %q\n", boxURL))
-	sb.WriteString(fmt.Sprintf("  cpus   = %s\n", cpus))
-	sb.WriteString(fmt.Sprintf("  memory = %q\n", memory+"mib"))
+	fmt.Fprintf(&sb, "resource \"virtualbox_vm\" %q {\n", resourceName)
+	fmt.Fprintf(&sb, "  name   = %q\n", vmName)
+	fmt.Fprintf(&sb, "  image  = %q\n", boxURL)
+	fmt.Fprintf(&sb, "  cpus   = %s\n", cpus)
+	fmt.Fprintf(&sb, "  memory = %q\n", memory+"mib")
 
 	if gui == "true" {
 		sb.WriteString("  gui    = true\n")
@@ -145,29 +145,32 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 			}
 
 			// Generate a rule name
-			ruleName := fmt.Sprintf("port_%s", guestPort)
-			if guestPort == "22" {
+			var ruleName string
+			switch guestPort {
+			case "22":
 				ruleName = "ssh"
-			} else if guestPort == "80" {
+			case "80":
 				ruleName = "http"
-			} else if guestPort == "443" {
+			case "443":
 				ruleName = "https"
-			} else if guestPort == "3306" {
+			case "3306":
 				ruleName = "mysql"
-			} else if guestPort == "5432" {
+			case "5432":
 				ruleName = "postgres"
-			} else if guestPort == "8080" {
+			case "8080":
 				ruleName = "http_alt"
+			default:
+				ruleName = fmt.Sprintf("port_%s", guestPort)
 			}
 
 			sb.WriteString("    port_forwarding {\n")
-			sb.WriteString(fmt.Sprintf("      name       = %q\n", ruleName))
-			sb.WriteString(fmt.Sprintf("      protocol   = %q\n", protocol))
+			fmt.Fprintf(&sb, "      name       = %q\n", ruleName)
+			fmt.Fprintf(&sb, "      protocol   = %q\n", protocol)
 			if hostIP != "" {
-				sb.WriteString(fmt.Sprintf("      host_ip    = %q\n", hostIP))
+				fmt.Fprintf(&sb, "      host_ip    = %q\n", hostIP)
 			}
-			sb.WriteString(fmt.Sprintf("      host_port  = %s\n", hostPort))
-			sb.WriteString(fmt.Sprintf("      guest_port = %s\n", guestPort))
+			fmt.Fprintf(&sb, "      host_port  = %s\n", hostPort)
+			fmt.Fprintf(&sb, "      guest_port = %s\n", guestPort)
 			sb.WriteString("    }\n")
 		}
 	}
@@ -178,7 +181,7 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 		ip := match[1]
 		sb.WriteString("\n  network_adapter {\n")
 		sb.WriteString("    type           = \"hostonly\"\n")
-		sb.WriteString(fmt.Sprintf("    # Static IP: %s (configure in guest)\n", ip))
+		fmt.Fprintf(&sb, "    # Static IP: %s (configure in guest)\n", ip)
 		sb.WriteString("    host_interface = \"VirtualBox Host-Only Ethernet Adapter\"\n")
 		sb.WriteString("  }\n")
 	}
@@ -192,7 +195,7 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 		sb.WriteString("\n  network_adapter {\n")
 		sb.WriteString("    type           = \"bridged\"\n")
 		if bridge != "" {
-			sb.WriteString(fmt.Sprintf("    host_interface = %q\n", bridge))
+			fmt.Fprintf(&sb, "    host_interface = %q\n", bridge)
 		} else {
 			sb.WriteString("    host_interface = \"\" # TODO: set your bridge interface\n")
 		}
@@ -214,8 +217,8 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 
 		folderName := sanitizeResourceName(strings.ReplaceAll(hostPath, "/", "_"))
 		sb.WriteString("\n  shared_folder {\n")
-		sb.WriteString(fmt.Sprintf("    name       = %q\n", folderName))
-		sb.WriteString(fmt.Sprintf("    host_path  = %q\n", hostPath))
+		fmt.Fprintf(&sb, "    name       = %q\n", folderName)
+		fmt.Fprintf(&sb, "    host_path  = %q\n", hostPath)
 		sb.WriteString("    auto_mount = true\n")
 		sb.WriteString("  }\n")
 	}
@@ -240,7 +243,7 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 				if strings.Contains(arg[0], ":id") {
 					sb.WriteString(`":id"`)
 				} else {
-					sb.WriteString(fmt.Sprintf("%q", arg[1]))
+					fmt.Fprintf(&sb, "%q", arg[1])
 				}
 			}
 			sb.WriteString("],\n")
@@ -249,7 +252,8 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 	}
 
 	// Parse shell provisioner — convert to comment with remote-exec hint
-	shellRegex := regexp.MustCompile(`config\.vm\.provision\s*["']shell["'],\s*inline:\s*<<-?(\w+)([\s\S]*?)\1`)
+	// Note: Go regex doesn't support backreferences, so we use a simpler pattern
+	shellRegex := regexp.MustCompile(`config\.vm\.provision\s*["']shell["'],\s*inline:\s*<<-?SHELL([\s\S]*?)SHELL`)
 	shellMatches := shellRegex.FindAllStringSubmatch(vagrantfile, -1)
 
 	if len(shellMatches) > 0 {
@@ -269,7 +273,7 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 			for _, line := range strings.Split(script, "\n") {
 				line = strings.TrimSpace(line)
 				if line != "" {
-					sb.WriteString(fmt.Sprintf("  #     %q,\n", line))
+					fmt.Fprintf(&sb, "  #     %q,\n", line)
 				}
 			}
 		}
@@ -280,8 +284,8 @@ func convertVagrantfileToHCL(vagrantfile string) string {
 	sb.WriteString("}\n")
 
 	// Add outputs
-	sb.WriteString(fmt.Sprintf("\noutput \"vm_id\" {\n  value = virtualbox_vm.%s.id\n}\n", resourceName))
-	sb.WriteString(fmt.Sprintf("\noutput \"vm_status\" {\n  value = virtualbox_vm.%s.status\n}\n", resourceName))
+	fmt.Fprintf(&sb, "\noutput \"vm_id\" {\n  value = virtualbox_vm.%s.id\n}\n", resourceName)
+	fmt.Fprintf(&sb, "\noutput \"vm_status\" {\n  value = virtualbox_vm.%s.status\n}\n", resourceName)
 
 	return sb.String()
 }

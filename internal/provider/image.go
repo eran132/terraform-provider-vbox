@@ -57,10 +57,20 @@ func unpackImage(ctx context.Context, imagePath, toDir string) error {
 
 	// Try tar with auto-detect compression first (works on most systems)
 	// Use -a flag for auto-detection, fall back to explicit flags
+	// Ensure absolute paths for tar
+	absImage, err := filepath.Abs(imagePath)
+	if err != nil {
+		absImage = imagePath
+	}
+	absDir, err := filepath.Abs(toDir)
+	if err != nil {
+		absDir = toDir
+	}
+
 	// Convert Windows paths to POSIX format for tar compatibility
 	// C:\Users\... -> /c/Users/... (required by Git Bash's tar on Windows)
-	tarImage := toTarPath(imagePath)
-	tarDir := toTarPath(toDir)
+	tarImage := toTarPath(absImage)
+	tarDir := toTarPath(absDir)
 
 	for _, tarArgs := range [][]string{
 		{"tar", "-xvf", tarImage, "-C", tarDir},  // auto-detect
