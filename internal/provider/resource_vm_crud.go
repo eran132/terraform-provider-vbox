@@ -33,6 +33,83 @@ func resourceVMExists(d *schema.ResourceData, meta any) (bool, error) {
 }
 
 func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
+	// Handle OVA/OVF import
+	if ovaSource := d.Get("ova_source").(string); ovaSource != "" {
+		name := d.Get("name").(string)
+
+		// Import OVA — VBoxManage import automatically creates and registers the VM
+		args := []string{"import", ovaSource, "--vsys", "0", "--vmname", name}
+
+		if _, _, err := vboxRun(ctx, args...); err != nil {
+			return diag.Errorf("failed to import OVA %s: %v", ovaSource, err)
+		}
+
+		// Get the imported VM
+		vm, err := getMachine(name)
+		if err != nil {
+			return diag.Errorf("failed to get imported VM: %v", err)
+		}
+
+		// Apply our configuration on top
+		if err := tfToVbox(ctx, d, vm); err != nil {
+			return diag.Errorf("unable to apply config to imported VM: %v", err)
+		}
+		if err := modifyVM(ctx, vm); err != nil {
+			return diag.Errorf("can't modify imported VM: %v", err)
+		}
+
+		// Apply all post-modify settings
+		if firmware := d.Get("firmware").(string); firmware != "bios" {
+			if err := applyFirmware(ctx, vm.UUID, firmware); err != nil {
+				return diag.Errorf("unable to set firmware: %v", err)
+			}
+		}
+		if gc := d.Get("graphics_controller").(string); gc != "" {
+			if err := applyGraphicsController(ctx, vm.UUID, gc); err != nil {
+				return diag.Errorf("unable to set graphics controller: %v", err)
+			}
+		}
+		if err := applyNICSettings(ctx, vm.UUID, d); err != nil {
+			return diag.Errorf("unable to apply NIC settings: %v", err)
+		}
+		if err := applySharedFolders(ctx, vm.UUID, d); err != nil {
+			return diag.Errorf("unable to apply shared folders: %v", err)
+		}
+		if cap := d.Get("cpu_execution_cap").(int); cap < 100 {
+			if err := applyCPUExecutionCap(ctx, vm.UUID, cap); err != nil {
+				return diag.Errorf("unable to set CPU execution cap: %v", err)
+			}
+		}
+		if d.Get("nested_hw_virt").(bool) {
+			if err := applyNestedHWVirt(ctx, vm.UUID, true); err != nil {
+				return diag.Errorf("unable to set nested HW virt: %v", err)
+			}
+		}
+		if userData := d.Get("user_data").(string); userData != "" {
+			if err := applyUserData(ctx, vm.UUID, userData); err != nil {
+				return diag.Errorf("unable to set user data: %v", err)
+			}
+		}
+		if customizations, ok := d.GetOk("customize"); ok {
+			if err := executeCustomizations(ctx, vm.UUID, customizations.([]any)); err != nil {
+				return diag.Errorf("customize commands failed: %v", err)
+			}
+		}
+
+		// Start the VM
+		if err := startVM(ctx, d, vm); err != nil {
+			return diag.Errorf("unable to start VM: %v", err)
+		}
+
+		d.SetId(vm.UUID)
+
+		if err := waitUntilVMIsReady(ctx, d, vm, meta); err != nil {
+			return diag.Errorf("failed to wait until VM is ready: %v", err)
+		}
+
+		return resourceVMRead(ctx, d, meta)
+	}
+
 	// Handle linked clone
 	if d.Get("linked_clone").(bool) {
 		sourceVM := d.Get("source_vm").(string)
@@ -113,6 +190,10 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta any) dia
 
 	if addr, exists := d.GetOk("url"); exists {
 		image = addr.(string)
+	}
+
+	if image == "" {
+		return diag.Errorf("'image' is required when 'ova_source' and 'linked_clone' are not used")
 	}
 
 	u, err := url.Parse(image)

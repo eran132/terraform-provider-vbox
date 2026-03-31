@@ -51,12 +51,32 @@ resource "virtualbox_vm" "web" {
 }
 ```
 
+### Example: Import from OVA
+
+```hcl
+resource "virtualbox_vm" "imported" {
+  name       = "imported-server"
+  ova_source = "/path/to/appliance.ova"
+  cpus       = 2
+  memory     = "1024mib"
+  status     = "running"
+
+  network_adapter {
+    type = "nat"
+  }
+}
+```
+
 ## Argument Reference
 
 ### Required
 
 - `name` - (Required, ForceNew) The name of the virtual machine.
-- `image` - (Required, ForceNew) URL or local path to a Vagrant `.box` file used to create the VM.
+
+### Image Source (one of the following)
+
+- `image` - (Optional, ForceNew) URL or local path to a Vagrant `.box` file used to create the VM. Required unless `ova_source` or `linked_clone` is used.
+- `ova_source` - (Optional, ForceNew) Path to an OVA/OVF file to import as this VM. Mutually exclusive with `image`. The OVA/OVF appliance is imported via `VBoxManage import` and the VM is then configured with the specified Terraform attributes.
 
 ### Optional - General
 

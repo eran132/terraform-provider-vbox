@@ -20,3 +20,4 @@ coverage.txt
 *.box
 tests/manual/terraform.tfstate*
 tests/manual/.terraform*
+*.exe

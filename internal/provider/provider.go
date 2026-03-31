@@ -27,6 +27,7 @@ func New() *schema.Provider {
 			"virtualbox_snapshot":         resourceSnapshot(),
 			"virtualbox_hostonly_network": resourceHostonlyNetwork(),
 			"virtualbox_nat_network":      resourceNATNetwork(),
+			"virtualbox_vm_export":        resourceVMExport(),
 		},
 		DataSourcesMap: map[string]*schema.Resource{
 			"virtualbox_host_info": dataSourceHostInfo(),

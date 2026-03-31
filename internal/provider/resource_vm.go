@@ -34,8 +34,15 @@ func resourceVM() *schema.Resource {
 
 			"image": {
 				Type:     schema.TypeString,
-				Required: true,
+				Optional: true,
 				ForceNew: true,
+			},
+
+			"ova_source": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				ForceNew:    true,
+				Description: "Path to an OVA/OVF file to import as this VM. Mutually exclusive with 'image'.",
 			},
 
 			"url": {
