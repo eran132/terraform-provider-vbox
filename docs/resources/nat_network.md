@@ -46,3 +46,7 @@ resource "virtualbox_nat_network" "lab" {
 - `host_port` - (Required) Host port number.
 - `guest_ip` - (Optional) Guest IP address.
 - `guest_port` - (Required) Guest port number.
+
+## Attribute Reference
+
+- `id` - The name of the NAT network (same as `name`).
